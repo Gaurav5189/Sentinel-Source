@@ -1,0 +1,17 @@
+# Environments
+.env
+.env.*
+!.env.example
+venv/
+env/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyc
+
+# Streamlit
+.streamlit/
