@@ -113,10 +113,20 @@ def evaluate_tools_batch(repo_list: list[dict]) -> list[dict]:
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        # Increased timeout to 90s because large context evaluation takes significantly longer
+        response = requests.post(url, headers=headers, json=payload, timeout=90)
         response.raise_for_status()
         
         response_data = response.json()
+        
+        # OpenRouter sometimes returns 200 OK but with an internal error JSON if the upstream provider fails
+        if "error" in response_data:
+            err_msg = response_data['error'].get('message', str(response_data['error']))
+            raise ValueError(f"OpenRouter Model Error: {err_msg}")
+            
+        if "choices" not in response_data:
+            raise ValueError(f"Corrupted API Response (No 'choices'): {response_data}")
+            
         content = response_data['choices'][0]['message'].get('content')
         
         if not content:

@@ -206,11 +206,21 @@ def main():
 
         # Cap the final UI output to the absolute top 6 results
         sorted_repos = sorted(evaluated_repos, key=get_score, reverse=True)[:6]
+        
+        # Save explicitly into Session State so downloads don't wipe the dashboard!
+        st.session_state.last_results = sorted_repos
+        st.session_state.last_query = query
+        
+    # ------------- RENDER RESULTS IMMUNIZED AGAINST DOWNLOAD RERUNS -------------
+    if "last_results" in st.session_state and st.session_state.last_results:
+        sorted_repos = st.session_state.last_results
+        query_executed = st.session_state.last_query
+        
         legit_count = sum(1 for r in sorted_repos if r.get('is_legit'))
         
         # Metrics Dashboard
         c1, c2, c3 = st.columns(3)
-        c1.metric("Search Query", query)
+        c1.metric("Search Query", query_executed)
         c2.metric("Best Repos Extracted", len(sorted_repos))
         c3.metric("Legitimate Tools Filtered", legit_count)
         
@@ -218,7 +228,7 @@ def main():
         
         # Build raw text report for download
         report_lines = [f"🛡️ PENTEST TOOL ANALYZER REPORT"]
-        report_lines.append(f"Query: '{query}' | Total Finalists: {len(sorted_repos)} | Legitimate: {legit_count}\n")
+        report_lines.append(f"Query: '{query_executed}' | Total Finalists: {len(sorted_repos)} | Legitimate: {legit_count}\n")
         report_lines.append("=" * 60 + "\n")
         
         for repo in sorted_repos:
@@ -244,7 +254,7 @@ def main():
             st.download_button(
                 label="📥 Download Report (.txt)",
                 data=report_text,
-                file_name=f"pentest_eval_{query.replace(' ', '_')}.txt",
+                file_name=f"pentest_eval_{query_executed.replace(' ', '_')}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
