@@ -68,21 +68,21 @@ def main():
         st.divider()
         st.subheader("Health Checks")
         
-        # 1. OpenRouter Integration Health Check (uses lightweight models endpoint)
+        # 1. OpenRouter Integration Health Check (Strict Auth Parsing)
         if st.button("🔌 Check LLM Connection"):
             if not OPENROUTER_API_KEY:
                 st.error("Missing OpenRouter API Key in .env!")
             else:
                 try:
                     res = requests.get(
-                        f"{OPENROUTER_BASE_URL}/models",
+                        f"{OPENROUTER_BASE_URL}/auth/key",
                         headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
                         timeout=DEFAULT_TIMEOUT
                     )
                     if res.status_code == 200:
-                        st.success(f"✅ Connection Successful!\nModel ({selected_model}) is configured.")
+                        st.success(f"✅ Authentic Connection Established!\nModel ({selected_model}) is configured.")
                     else:
-                        st.error(f"❌ Error {res.status_code}: API Unavailable.")
+                        st.error(f"❌ Error {res.status_code}: Invalid API Key or Unauthorized.")
                 except Exception as e:
                     st.error(f"❌ Connection Failed: {e}")
                     

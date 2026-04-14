@@ -1,5 +1,7 @@
 # 🛡️ Sentinel-Source — Pentest Tool Analyzer
 
+![Sentinel-Source UI Screenshot](assets/Image.png)
+
 AI-powered OSINT tool that searches **GitHub** and **GitLab** for pentesting tools and evaluates their legitimacy, safety, and viability using large language models via [OpenRouter](https://openrouter.ai/).
 
 ## Features
@@ -99,4 +101,7 @@ All configuration is centralized in `config.py`. Key constants:
 
 ## License
 
-This project is provided as-is for educational and authorized security research purposes.
+This project is licensed under the standard [MIT License](LICENSE). 
+*Copyright (c) 2026 Gaurav5189.*
+
+> **Disclaimer**: This tool is provided "as-is" strictly for educational and authorized security research purposes.
