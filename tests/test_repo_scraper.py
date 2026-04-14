@@ -61,8 +61,14 @@ class TestFetchReadme:
         result = _fetch_readme(repo)
         assert result["readme_text"] == ""
 
-    def test_does_not_mutate_original(self, sample_github_repo):
+    @patch("repo_scraper.requests.get")
+    def test_does_not_mutate_original(self, mock_get, sample_github_repo):
         """Verifies the original dict is not mutated."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "# Test"
+        mock_get.return_value = mock_response
+
         original_keys = set(sample_github_repo.keys())
         _fetch_readme(sample_github_repo)
         assert set(sample_github_repo.keys()) == original_keys
