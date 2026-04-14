@@ -1,37 +1,41 @@
-import os
+import time
 import requests
-from dotenv import load_dotenv
+from config import (
+    GITLAB_TOKEN, GITLAB_API_URL, GITLAB_TIMEOUT, GITLAB_MAX_RETRIES, get_logger
+)
 
-load_dotenv()
+logger = get_logger(__name__)
+
 
 def search_gitlab_repos(query: str, max_results: int = 5) -> list[dict]:
     """
     Search GitLab for repositories matching the query.
-    """
-    # GitLab API works anonymously for public repos, but token increases limits
-    token = os.environ.get("GITLAB_TOKEN")
     
-    headers = {}
-    if token:
-        headers["PRIVATE-TOKEN"] = token
+    Args:
+        query: The search query string.
+        max_results: Maximum number of results to return. Defaults to 5.
         
-    url = "https://gitlab.com/api/v4/projects"
+    Returns:
+        A list of dictionaries containing repository details.
+    """
+    headers = {}
+    if GITLAB_TOKEN:
+        headers["PRIVATE-TOKEN"] = GITLAB_TOKEN
+        
+    url = f"{GITLAB_API_URL}/projects"
     params = {
         "search": query,
         "per_page": min(max_results, 100)
     }
     
-    import time
     repos = []
     
-    max_retries = 2
-    for attempt in range(max_retries):
+    for attempt in range(GITLAB_MAX_RETRIES):
         try:
-            # Extended from 10s to 30s. GitLab's search architecture is notoriously slow
-            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response = requests.get(url, headers=headers, params=params, timeout=GITLAB_TIMEOUT)
             
             if response.status_code == 429:
-                print("Error: GitLab API rate limit exceeded.")
+                logger.error("GitLab API rate limit exceeded.")
                 return repos
                 
             response.raise_for_status()
@@ -53,13 +57,16 @@ def search_gitlab_repos(query: str, max_results: int = 5) -> list[dict]:
             # Break immediately out of loop on a successful pull
             break
                 
-        except requests.exceptions.Timeout as e:
-            print(f"GitLab API Timeout (Attempt {attempt+1}/{max_retries}). Slow connection...")
-            if attempt == max_retries - 1:
-                print(f"GitLab severely timed out after {max_retries} attempts.")
+        except requests.exceptions.Timeout:
+            logger.warning(
+                "GitLab API Timeout (Attempt %d/%d). Retrying...",
+                attempt + 1, GITLAB_MAX_RETRIES
+            )
+            if attempt == GITLAB_MAX_RETRIES - 1:
+                logger.error("GitLab timed out after %d attempts.", GITLAB_MAX_RETRIES)
             time.sleep(2)
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching data from GitLab API: {e}")
+            logger.error("Error fetching data from GitLab API: %s", e)
             break
             
     return repos

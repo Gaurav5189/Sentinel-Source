@@ -1,33 +1,30 @@
-import os
 import requests
-from dotenv import load_dotenv
+from config import GITHUB_TOKEN, GITHUB_API_URL, DEFAULT_TIMEOUT, get_logger
 
-# Load environment variables from .env file
-load_dotenv()
+logger = get_logger(__name__)
+
 
 def search_github_repos(query: str, max_results: int = 10) -> list[dict]:
     """
     Search GitHub repositories using the GitHub REST API.
     
     Args:
-        query (str): The search query string.
-        max_results (int, optional): Maximum number of results to return. Defaults to 10.
+        query: The search query string.
+        max_results: Maximum number of results to return. Defaults to 10.
         
     Returns:
-        list[dict]: A list of dictionaries containing repository details.
+        A list of dictionaries containing repository details.
     """
-    token = os.environ.get("GITHUB_TOKEN")
-    
     headers = {
         "Accept": "application/vnd.github.v3+json",
     }
     
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
     else:
-        print("Warning: GITHUB_TOKEN not found in environment variables. Making unauthenticated request.")
+        logger.warning("GITHUB_TOKEN not found. Making unauthenticated request (stricter rate limits).")
         
-    url = "https://api.github.com/search/repositories"
+    url = f"{GITHUB_API_URL}/search/repositories"
     
     # GitHub's max per_page is 100.
     params = {
@@ -38,12 +35,12 @@ def search_github_repos(query: str, max_results: int = 10) -> list[dict]:
     repos = []
     
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=DEFAULT_TIMEOUT)
         
         # Handle rate limit exceeded
         if response.status_code in (403, 429) and "rate limit" in response.text.lower():
             reset_time = response.headers.get("X-RateLimit-Reset", "Unknown")
-            print(f"Error: GitHub API rate limit exceeded. Resets at epoch timestamp: {reset_time}")
+            logger.error("GitHub API rate limit exceeded. Resets at epoch timestamp: %s", reset_time)
             return repos
             
         # Raise an exception for other HTTP errors (4xx or 5xx)
@@ -64,10 +61,10 @@ def search_github_repos(query: str, max_results: int = 10) -> list[dict]:
             repos.append(repo_info)
             
     except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP Error fetching data from GitHub API: {http_err}")
+        logger.error("HTTP Error fetching data from GitHub API: %s", http_err)
     except requests.exceptions.RequestException as req_err:
-        print(f"Connection/Request Error fetching data from GitHub API: {req_err}")
+        logger.error("Connection/Request Error fetching data from GitHub API: %s", req_err)
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        logger.exception("Unexpected error during GitHub search: %s", e)
         
     return repos

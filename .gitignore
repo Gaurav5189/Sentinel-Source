@@ -12,6 +12,7 @@ __pycache__/
 *$py.class
 *.so
 *.pyc
+__init__.py
 
 # Streamlit
 .streamlit/

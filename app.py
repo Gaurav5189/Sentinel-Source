@@ -1,11 +1,19 @@
 import streamlit as st
 import time
-import os
+import concurrent.futures
 import requests
+from config import (
+    OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_BASE_URL,
+    GITHUB_TOKEN, GITLAB_TOKEN, GITHUB_API_URL, GITLAB_API_URL,
+    DEFAULT_TIMEOUT, TOP_RESULTS_DISPLAY,
+    sanitize_query, sanitize_filename, get_logger
+)
 from github_fetcher import search_github_repos
 from gitlab_fetcher import search_gitlab_repos
 from repo_scraper import fetch_readmes_concurrently
 from llm_evaluator import evaluate_tools_batch, enhance_query_llm
+
+logger = get_logger(__name__)
 
 # Standard UI Styling
 st.set_page_config(
@@ -40,15 +48,11 @@ def main():
         st.subheader("Settings")
         
         # Fetch the exact model specified in the user's .env file
-        env_model = os.environ.get("OPENROUTER_MODEL")
+        env_model = OPENROUTER_MODEL
         display_model = env_model if env_model else "Model Not Configured"
         
         # Only show the model they have explicitly provided
         selected_model = st.selectbox("Configured LLM Model (.env)", [display_model], index=0)
-        
-        # We inject this into the environment dynamically so the evaluator grabs it over the .env
-        if env_model:
-            os.environ["OPENROUTER_MODEL"] = env_model
         
         st.subheader("Search Limits")
         num_gh_repos = st.slider("GitHub Deep Search Limit", min_value=1, max_value=25, value=5)
@@ -57,34 +61,31 @@ def main():
         st.divider()
         st.subheader("Health Checks")
         
-        # 1. OpenRouter Integration Health Check
+        # 1. OpenRouter Integration Health Check (uses lightweight models endpoint)
         if st.button("🔌 Check LLM Connection"):
-            api_key = os.environ.get("OPENROUTER_API_KEY")
-            if not api_key:
+            if not OPENROUTER_API_KEY:
                 st.error("Missing OpenRouter API Key in .env!")
             else:
                 try:
-                    res = requests.post(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        json={"model": selected_model, "messages": [{"role": "user", "content": "ping"}]},
-                        timeout=10
+                    res = requests.get(
+                        f"{OPENROUTER_BASE_URL}/models",
+                        headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                        timeout=DEFAULT_TIMEOUT
                     )
                     if res.status_code == 200:
-                        st.success(f"✅ Connection Successful!\nModel ({selected_model}) is active.")
+                        st.success(f"✅ Connection Successful!\nModel ({selected_model}) is configured.")
                     else:
-                        st.error(f"❌ Error {res.status_code}: Model Unavailable.")
+                        st.error(f"❌ Error {res.status_code}: API Unavailable.")
                 except Exception as e:
                     st.error(f"❌ Connection Failed: {e}")
                     
         # 2. GitHub Integration Health Check
         if st.button("🔌 Check GitHub API"):
-            github_token = os.environ.get("GITHUB_TOKEN")
             headers = {"Accept": "application/vnd.github.v3+json"}
-            if github_token:
-                headers["Authorization"] = f"Bearer {github_token}"
+            if GITHUB_TOKEN:
+                headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
             try:
-                res = requests.get("https://api.github.com/user", headers=headers, timeout=10)
+                res = requests.get(f"{GITHUB_API_URL}/user", headers=headers, timeout=DEFAULT_TIMEOUT)
                 if res.status_code == 200:
                     st.success(f"✅ GitHub Valid! (Authenticated User: {res.json().get('login')})")
                 elif res.status_code == 401:
@@ -96,22 +97,21 @@ def main():
 
         # 3. GitLab Integration Health Check
         if st.button("🔌 Check GitLab API"):
-            gitlab_token = os.environ.get("GITLAB_TOKEN")
             headers = {}
-            if gitlab_token:
-                headers["PRIVATE-TOKEN"] = gitlab_token
+            if GITLAB_TOKEN:
+                headers["PRIVATE-TOKEN"] = GITLAB_TOKEN
             try:
-                res = requests.get("https://gitlab.com/api/v4/projects?per_page=1", headers=headers, timeout=10)
+                res = requests.get(f"{GITLAB_API_URL}/projects?per_page=1", headers=headers, timeout=DEFAULT_TIMEOUT)
                 if res.status_code == 200:
                     st.success("✅ GitLab Local Connection is Valid!")
-                    if gitlab_token:
+                    if GITLAB_TOKEN:
                         st.info("🔐 Authenticated PAT link established.")
                     else:
                         st.warning("⚠️ No Token Configured. Using limited anonymous bandwidth.")
                 elif res.status_code == 401:
                     st.error("❌ GitLab Token Invalid (401).")
                 else:
-                    st.error(f"❌ GitLab Rejection {res.status_code}: {res.text}")
+                    st.error(f"❌ GitLab Rejection {res.status_code}")
             except Exception as e:
                 st.error(f"❌ Connection Failed: {e}")
 
@@ -120,7 +120,7 @@ def main():
     # ---------------------------
     col1, col2 = st.columns([1, 10])
     with col1:
-        st.markdown("<h1 style='text-align: center;'>🛡️</h1>", unsafe_allow_html=True)
+        st.header("🛡️")
     with col2:
         st.title("Pentest Tool Analyzer")
         
@@ -143,7 +143,7 @@ def main():
         
     with colR:
         # UI Spacing to align with the text_input perfectly
-        st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+        st.markdown("")
         if st.button("✨ Enhance Query", use_container_width=True):
             if not env_model:
                 st.error("Model Not Configured!")
@@ -161,8 +161,8 @@ def main():
     if query_val != st.session_state.search_query:
         st.session_state.search_query = query_val
 
-    # Keep query variable pointing to the text box output so Run Pipeline behaves normally
-    query = query_val
+    # Sanitize input: enforce max length, strip control characters (SEC-03)
+    query = sanitize_query(query_val)
 
     if st.button("🚀 Run Pipeline", type="primary"):
         if not env_model:
@@ -177,10 +177,14 @@ def main():
         
         # Transparent Processing
         with st.status("Executing Multi-Stage OSINT Pipeline...", expanded=True) as status:
-            st.write(f"🔍 Searching GitHub (Limit: {num_gh_repos}) and GitLab (Limit: {num_gl_repos})...")
+            st.write(f"🔍 Searching GitHub (Limit: {num_gh_repos}) and GitLab (Limit: {num_gl_repos}) in parallel...")
             
-            gh_repos = search_github_repos(query, max_results=num_gh_repos)
-            gl_repos = search_gitlab_repos(query, max_results=num_gl_repos)
+            # PERF-02: Run GitHub and GitLab searches in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                gh_future = executor.submit(search_github_repos, query, num_gh_repos)
+                gl_future = executor.submit(search_gitlab_repos, query, num_gl_repos)
+                gh_repos = gh_future.result()
+                gl_repos = gl_future.result()
             
             combined_repos = gh_repos + gl_repos
             if not combined_repos:
@@ -204,8 +208,8 @@ def main():
             s = r.get("score", 0)
             return s if isinstance(s, int) else 0
 
-        # Cap the final UI output to the absolute top 6 results
-        sorted_repos = sorted(evaluated_repos, key=get_score, reverse=True)[:6]
+        # Cap the final UI output to the top results
+        sorted_repos = sorted(evaluated_repos, key=get_score, reverse=True)[:TOP_RESULTS_DISPLAY]
         
         # Save explicitly into Session State so downloads don't wipe the dashboard!
         st.session_state.last_results = sorted_repos
@@ -249,12 +253,14 @@ def main():
 
         colA, colB = st.columns([3, 1])
         with colA:
-            st.subheader("Top 6 Investigation Summary")
+            st.subheader(f"Top {TOP_RESULTS_DISPLAY} Investigation Summary")
         with colB:
+            # CQ-07: Sanitize filename to prevent path injection
+            safe_filename = sanitize_filename(query_executed)
             st.download_button(
                 label="📥 Download Report (.txt)",
                 data=report_text,
-                file_name=f"pentest_eval_{query_executed.replace(' ', '_')}.txt",
+                file_name=f"pentest_eval_{safe_filename}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
@@ -269,8 +275,11 @@ def main():
             
             status_color = "🟢" if is_legit else "🔴"
             
+            # SEC-04: Sanitize URL — only allow https:// github/gitlab URLs in rendered markdown
+            safe_url = html_url if html_url.startswith(("https://github.com/", "https://gitlab.com/")) else "#"
+            
             with st.expander(f"{status_color} {repo_name} | {platform_badge} | AI Score: {score}/10"):
-                st.markdown(f"**🔗 Source URL:** [{html_url}]({html_url})")
+                st.markdown(f"**🔗 Source URL:** [{safe_url}]({safe_url})")
                 st.markdown(f"**🛡️ Is Legitimate:** {'Yes' if is_legit else 'No'}")
                 st.markdown(f"**📝 AI Analysis:** {analysis}")
 
