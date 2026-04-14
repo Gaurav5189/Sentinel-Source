@@ -87,7 +87,6 @@ def sanitize_readme_text(text: str, max_length: int = MAX_README_LENGTH) -> str:
     Sanitize README content before sending to LLM to mitigate prompt injection.
     - Strips control characters (except newlines/tabs)
     - Truncates to max_length
-    - Removes common prompt injection patterns
     """
     if not text:
         return ""

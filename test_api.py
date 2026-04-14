@@ -23,8 +23,11 @@ def test_github():
         response = requests.get("https://api.github.com/user", headers=headers, timeout=10)
         
         if response.status_code == 200:
-            user = response.json().get("login", "Unknown User")
-            print(f"✅ SUCCESS! Valid token. Authenticated to GitHub as: {user}")
+            try:
+                user = response.json().get("login", "Unknown User")
+                print(f"✅ SUCCESS! Valid token. Authenticated to GitHub as: {user}")
+            except requests.exceptions.JSONDecodeError:
+                print("❌ ERROR: Received 200 but failed to parse JSON response.")
         elif response.status_code == 401:
             print("❌ ERROR 401: Your GITHUB_TOKEN is INVALID. Please check it in your .env file.")
         else:
@@ -65,9 +68,13 @@ def test_openrouter():
         response = requests.post(url, headers=headers, json=payload, timeout=15)
         
         if response.status_code == 200:
-            msg = response.json()['choices'][0]['message']['content']
-            print(f"✅ SUCCESS! LLM is actively responding.")
-            print(f"🤖 LLM Test Reply: {msg.strip()}")
+            try:
+                data = response.json()
+                msg = data['choices'][0]['message']['content']
+                print(f"✅ SUCCESS! LLM is actively responding.")
+                print(f"🤖 LLM Test Reply: {msg.strip()}")
+            except (KeyError, IndexError, requests.exceptions.JSONDecodeError) as e:
+                print(f"❌ ERROR: Received 200 but unexpected response format: {e}")
         elif response.status_code in [401, 403]:
             print("❌ ERROR 401/403: OpenRouter API Key is invalid or unauthorized.")
         else:

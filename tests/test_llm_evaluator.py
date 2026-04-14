@@ -224,8 +224,16 @@ class TestEvaluateToolsBatch:
             assert "secret details" not in repo["analysis"]
             assert "temporarily unavailable" in repo["analysis"]
 
-    def test_does_not_mutate_input(self, sample_repo_list):
+    @patch("llm_evaluator.requests.post")
+    @patch("llm_evaluator.OPENROUTER_API_KEY", "test-key")
+    @patch("llm_evaluator.OPENROUTER_MODEL", "test-model")
+    def test_does_not_mutate_input(self, mock_post, sample_repo_list):
         """Verifies the original list/dicts are not modified."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
         original_names = [r["name"] for r in sample_repo_list]
         original_key_counts = [len(r.keys()) for r in sample_repo_list]
 

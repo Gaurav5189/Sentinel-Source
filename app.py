@@ -54,9 +54,16 @@ def main():
         # Only show the model they have explicitly provided
         selected_model = st.selectbox("Configured LLM Model (.env)", [display_model], index=0)
         
+        st.subheader("Platform Toggles")
+        use_github = st.toggle("Enable GitHub Search", value=True)
+        use_gitlab = st.toggle("Enable GitLab Search", value=True)
+        
         st.subheader("Search Limits")
-        num_gh_repos = st.slider("GitHub Deep Search Limit", min_value=1, max_value=25, value=5)
-        num_gl_repos = st.slider("GitLab Deep Search Limit", min_value=1, max_value=25, value=5)
+        num_gh_repos = st.slider("GitHub Deep Search Limit", min_value=1, max_value=25, value=5) if use_github else 0
+        num_gl_repos = st.slider("GitLab Deep Search Limit", min_value=1, max_value=25, value=5) if use_gitlab else 0
+        
+        st.subheader("Output Settings")
+        max_ui_results = st.slider("Final Output Scope", min_value=5, max_value=15, value=6)
         
         st.divider()
         st.subheader("Health Checks")
@@ -82,16 +89,23 @@ def main():
         # 2. GitHub Integration Health Check
         if st.button("🔌 Check GitHub API"):
             headers = {"Accept": "application/vnd.github.v3+json"}
-            if GITHUB_TOKEN:
-                headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
             try:
-                res = requests.get(f"{GITHUB_API_URL}/user", headers=headers, timeout=DEFAULT_TIMEOUT)
-                if res.status_code == 200:
-                    st.success(f"✅ GitHub Valid! (Authenticated User: {res.json().get('login')})")
-                elif res.status_code == 401:
-                    st.error("❌ GitHub Token Invalid (401).")
+                if not GITHUB_TOKEN:
+                    # Use rate_limit endpoint for anonymous check
+                    res = requests.get(f"{GITHUB_API_URL}/rate_limit", headers=headers, timeout=DEFAULT_TIMEOUT)
+                    if res.status_code == 200:
+                        st.warning("⚠️ No Token Configured. Using limited anonymous bandwidth.")
+                    else:
+                        st.error(f"❌ GitHub API Error: {res.status_code}")
                 else:
-                    st.warning("⚠️ No Token Configured. Using limited anonymous bandwidth.")
+                    headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+                    res = requests.get(f"{GITHUB_API_URL}/user", headers=headers, timeout=DEFAULT_TIMEOUT)
+                    if res.status_code == 200:
+                        st.success(f"✅ GitHub Valid! (Authenticated User: {res.json().get('login')})")
+                    elif res.status_code == 401:
+                        st.error("❌ GitHub Token Invalid (401).")
+                    else:
+                        st.error(f"❌ GitHub API Error: {res.status_code}")
             except Exception as e:
                 st.error(f"❌ Connection Failed: {e}")
 
@@ -177,14 +191,20 @@ def main():
         
         # Transparent Processing
         with st.status("Executing Multi-Stage OSINT Pipeline...", expanded=True) as status:
-            st.write(f"🔍 Searching GitHub (Limit: {num_gh_repos}) and GitLab (Limit: {num_gl_repos}) in parallel...")
+            if not use_github and not use_gitlab:
+                status.update(label="Pipeline failed: Choose at least one search platform.", state="error")
+                st.stop()
+                
+            st.write(f"🔍 Initializing Platform Searches... GitHub ({'On' if use_github else 'Off'}) | GitLab ({'On' if use_gitlab else 'Off'})")
             
-            # PERF-02: Run GitHub and GitLab searches in parallel
+            gh_repos, gl_repos = [], []
+            # PERF-02: Run GitHub and GitLab searches in parallel conditionally
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                gh_future = executor.submit(search_github_repos, query, num_gh_repos)
-                gl_future = executor.submit(search_gitlab_repos, query, num_gl_repos)
-                gh_repos = gh_future.result()
-                gl_repos = gl_future.result()
+                gh_future = executor.submit(search_github_repos, query, num_gh_repos) if use_github else None
+                gl_future = executor.submit(search_gitlab_repos, query, num_gl_repos) if use_gitlab else None
+                
+                if gh_future: gh_repos = gh_future.result()
+                if gl_future: gl_repos = gl_future.result()
             
             combined_repos = gh_repos + gl_repos
             if not combined_repos:
@@ -208,8 +228,8 @@ def main():
             s = r.get("score", 0)
             return s if isinstance(s, int) else 0
 
-        # Cap the final UI output to the top results
-        sorted_repos = sorted(evaluated_repos, key=get_score, reverse=True)[:TOP_RESULTS_DISPLAY]
+        # Cap the final UI output to the dynamically selected top results scope
+        sorted_repos = sorted(evaluated_repos, key=get_score, reverse=True)[:max_ui_results]
         
         # Save explicitly into Session State so downloads don't wipe the dashboard!
         st.session_state.last_results = sorted_repos
@@ -239,7 +259,8 @@ def main():
             r_name = repo.get("name", "Unknown")
             r_score = repo.get("score", 0)
             r_legit = "Yes" if repo.get("is_legit", False) else "No"
-            r_url = repo.get("html_url", "#")
+            raw_url = repo.get("html_url", "#")
+            r_url = raw_url if raw_url.startswith(("https://github.com/", "https://gitlab.com/")) else "[URL Sanitized]"
             r_Platform = "GitLab" if repo.get("is_gitlab") else "GitHub"
             r_analysis = repo.get("analysis", "No analysis.")
             
@@ -253,7 +274,7 @@ def main():
 
         colA, colB = st.columns([3, 1])
         with colA:
-            st.subheader(f"Top {TOP_RESULTS_DISPLAY} Investigation Summary")
+            st.subheader(f"Top {len(sorted_repos)} Investigation Summary")
         with colB:
             # CQ-07: Sanitize filename to prevent path injection
             safe_filename = sanitize_filename(query_executed)
