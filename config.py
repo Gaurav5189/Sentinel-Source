@@ -49,7 +49,7 @@ GITLAB_API_URL = "https://gitlab.com/api/v4"
 # Timeouts (seconds)
 # ──────────────────────────────────────────────
 DEFAULT_TIMEOUT = 15
-LLM_TIMEOUT = 90
+LLM_TIMEOUT = 150
 GITLAB_TIMEOUT = 30
 README_FETCH_TIMEOUT = 5
 

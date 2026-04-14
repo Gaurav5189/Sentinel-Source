@@ -93,7 +93,7 @@ All configuration is centralized in `config.py`. Key constants:
 | Constant | Default | Description |
 |----------|---------|-------------|
 | `MAX_README_LENGTH` | 2000 | Max chars of README sent to LLM per repo |
-| `LLM_TIMEOUT` | 90s | Timeout for LLM batch evaluation requests |
+| `LLM_TIMEOUT` | 150s | Timeout for LLM batch evaluation requests |
 | `DEFAULT_TIMEOUT` | 15s | Timeout for standard API requests |
 | `TOP_RESULTS_DISPLAY` | 6 | Number of top results shown in the UI |
 | `MAX_THREAD_WORKERS` | 10 | Max concurrent threads for README fetching |
